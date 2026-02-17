@@ -6,14 +6,16 @@ import contextlib
 import inspect
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
+from mlb_stats_mcp.auth import APIKeyMiddleware
 from mlb_stats_mcp.prompts import prompts
 from mlb_stats_mcp.tools import (
     mlb_statsapi_tools,
@@ -29,8 +31,20 @@ load_dotenv()
 # Initialize logging for the server
 logger = setup_logging("mcp_server")
 
-# Initialize FastMCP server
-mcp = FastMCP("baseball", stateless_http=True)
+# Initialize FastMCP server with security settings for remote deployment
+mcp = FastMCP(
+    "baseball",
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "localhost:*",
+            "127.0.0.1:*",
+            "mlb-stats-mcp.fly.dev:*",
+            "mlb-stats-mcp.fly.dev",
+        ],
+    ),
+)
 
 
 # Automatically register all prompt functions from prompts.py
@@ -768,7 +782,7 @@ async def get_playerid_lookup(
 
 @mcp_tool_wrapper
 async def reverse_lookup_player(
-    player_ids: list[int],
+    player_ids: List[int],
     key_type: str = "mlbam",
 ) -> Dict[str, Any]:
     """Retrieve a table of player information given a list of player ids
@@ -917,15 +931,31 @@ async def lifespan(app: FastAPI):
 
 # Add this function to create the FastAPI app
 def create_fastapi_app() -> FastAPI:
-    """Create and configure FastAPI application."""
+    """Create and configure FastAPI application with authentication."""
     app = FastAPI(lifespan=lifespan)
+
+    # Add API key authentication middleware
+    # Uses MLB_STATS_API_KEY env var if set, otherwise auth is disabled
+    app.add_middleware(APIKeyMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],  # Your Next.js dev server
+        allow_origins=["*"],  # Allow all origins for API access
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Health check endpoint (requires auth)
+    @app.get("/health")
+    def health_check():
+        return {"status": "healthy", "service": "mlb-stats-mcp"}
+
+    # Infrastructure health check (bypasses auth for load balancers)
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok"}
+
     app.mount("/", mcp.streamable_http_app())
     return app
 
@@ -935,7 +965,7 @@ def main():
     # Check if running with HTTP transport
     if "--http" in sys.argv:
         logger.info("Starting MLB Stats MCP server over HTTP with FastAPI")
-        port = int(os.environ.get("PORT", 8081))
+        port = int(os.environ.get("PORT", 8080))
         uvicorn.run(
             "mlb_stats_mcp.server:create_fastapi_app",
             host="0.0.0.0",  # This binds to all interfaces
