@@ -88,8 +88,10 @@ def mcp_tool_wrapper(func):
             logger.error(f"Error in {func.__name__}: {e!s}")
             raise Exception(f"Error in {func.__name__}: {e!s}") from e
 
-    # Copy the signature from the original function
+    # Copy the signature and annotations from the original function
+    # Annotations are needed for FastMCP to generate proper JSON schemas
     wrapper.__signature__ = sig
+    wrapper.__annotations__ = func.__annotations__
 
     # Register the tool with MCP
     return mcp.tool(name=func.__name__, description=func.__doc__)(wrapper)
