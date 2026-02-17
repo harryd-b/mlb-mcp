@@ -17,6 +17,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from mlb_stats_mcp.auth import APIKeyMiddleware
 from mlb_stats_mcp.prompts import prompts
+from mlb_stats_mcp.schema_utils import simplify_tool_schemas
 from mlb_stats_mcp.tools import (
     mlb_statsapi_tools,
     pybaseball_plotting_tools,
@@ -921,6 +922,11 @@ async def get_top_prospects(
         pitchers and batters.
     """
     return await pybaseball_supp_tools.get_top_prospects(team, player_type)
+
+
+# Simplify tool schemas for Anthropic compatibility
+# This removes anyOf patterns and other unsupported JSON Schema features
+simplify_tool_schemas(mcp)
 
 
 # Add this lifespan manager after your mcp = FastMCP("baseball") line
