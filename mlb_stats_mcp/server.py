@@ -4,6 +4,7 @@ MCP server implementation for the baseball project with MLB Stats API integratio
 
 import contextlib
 import inspect
+import json
 import os
 import sys
 from typing import Any, Dict, List, Optional
@@ -100,7 +101,14 @@ def mcp_tool_wrapper(func):
 
 # Core Data Gathering Tools
 @mcp_tool_wrapper
-async def get_stats(endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
+async def get_stats(endpoint: str, params_json: str) -> Dict[str, Any]:
+    """Get stats from a specific MLB Stats API endpoint.
+
+    Args:
+        endpoint: The API endpoint to query
+        params_json: JSON string of query parameters (e.g. '{"season": 2024, "teamId": 147}')
+    """
+    params = json.loads(params_json)
     return await mlb_statsapi_tools.get_stats(endpoint, params)
 
 
@@ -605,7 +613,7 @@ async def get_statcast_single_game(
 
 @mcp_tool_wrapper
 async def create_strike_zone_plot(
-    data: Dict[str, Any],
+    data_json: str,
     title: str = "",
     colorby: str = "pitch_type",
     legend_title: str = "",
@@ -615,8 +623,7 @@ async def create_strike_zone_plot(
     Produces a pitches overlaid on a strike zone using StatCast data
 
     Args:
-        data: (pandas.DataFrame)
-            StatCast pandas.DataFrame of StatCast pitcher data
+        data_json: JSON string of StatCast pitcher data (from get_statcast_pitcher_data)
         title: (str), default = ''
             Optional: Title of plot
         colorby: (str), default = 'pitch_type'
@@ -629,6 +636,7 @@ async def create_strike_zone_plot(
             'pitch_type', 'release_speed', 'effective_speed',
               'launch_speed', or something else in the data
     """
+    data = json.loads(data_json)
     return await pybaseball_plotting_tools.create_strike_zone_plot(
         data, title, colorby, legend_title, annotation
     )
@@ -636,7 +644,7 @@ async def create_strike_zone_plot(
 
 @mcp_tool_wrapper
 async def create_spraychart_plot(
-    data: Dict[str, Any],
+    data_json: str,
     team_stadium: str = "generic",
     title: str = "",
     colorby: str = "events",
@@ -648,26 +656,17 @@ async def create_spraychart_plot(
     """
     Produces a spraychart using statcast data overlayed on specified stadium
 
-
     Args:
-        data: (pandas.DataFrame)
-            StatCast pandas.DataFrame of StatCast batter data
-        team_stadium: (str)
-            Team whose stadium the hits will be overlaid on
-        title: (str), default = ''
-            Optional: Title of plot
-        size: (int), default = 100
-            Optional: Size of hit circles on plot
-        colorby: (str), default = 'events'
-            Optional: Which category to color the mark with.
-                'events','player', or a column within data
-        legend_title: (str), default = based on colorby
-            Optional: Title for the legend
-        width: (int), default = 500
-            Optional: Width of plot (not counting the legend)
-        height: (int), default = 500
-            Optional: Height of plot
+        data_json: JSON string of StatCast batter data (from get_statcast_batter_data)
+        team_stadium: Team whose stadium the hits will be overlaid on (e.g. 'NYY', 'LAD')
+        title: Optional title of plot
+        size: Size of hit circles on plot (default: 100)
+        colorby: Category to color the marks with: 'events', 'player', or a column name
+        legend_title: Title for the legend
+        width: Width of plot (default: 500)
+        height: Height of plot (default: 500)
     """
+    data = json.loads(data_json)
     return await pybaseball_plotting_tools.create_spraychart_plot(
         data, team_stadium, title, colorby, legend_title, size, width, height
     )
@@ -675,41 +674,178 @@ async def create_spraychart_plot(
 
 @mcp_tool_wrapper
 async def create_bb_profile_plot(
-    data: Dict[str, Any],
+    data_json: str,
     parameter: str = "launch_angle",
 ) -> Dict[str, Any]:
-    """Plots a given StatCast parameter split by bb_type
+    """Plots a given StatCast parameter split by batted ball type (bb_type)
 
     Args:
-        df: (pandas.DataFrame)
-            pandas.DataFrame of StatCast batter data
-            (retrieved through statcast, statcast_batter, etc)
-        parameter: (str), default = 'launch_angle'
-            Optional: Parameter to plot
+        data_json: JSON string of StatCast batter data (from get_statcast_batter_data)
+        parameter: Parameter to plot: 'launch_angle', 'launch_speed', etc. (default: 'launch_angle')
     """
+    data = json.loads(data_json)
     return await pybaseball_plotting_tools.create_bb_profile_plot(data, parameter)
 
 
 @mcp_tool_wrapper
 async def create_teams_plot(
-    data: Dict[str, Any],
+    data_json: str,
     x_axis: str,
     y_axis: str,
     title: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Plots a scatter plot with each MLB team
+    """Plots a scatter plot comparing all MLB teams on two statistics
 
     Args:
-        data: (pandas.DataFrame)
-            pandas.DataFrame of Fangraphs team data
-                (retrieved through team_batting or team_pitching)
-        x_axis: (str)
-            Stat name to be plotted as the x_axis of the chart
-        y_axis: (str)
-            Stat name to be plotted as the y_axis of the chart
-        title: (str), default = None
-            Optional: Title of the plot
+        data_json: JSON string of Fangraphs team data (from get_team_batting or get_team_pitching)
+        x_axis: Stat name for the x-axis (e.g. 'HR', 'AVG', 'OBP')
+        y_axis: Stat name for the y-axis (e.g. 'RBI', 'SLG', 'wOBA')
+        title: Optional title for the plot
     """
+    data = json.loads(data_json)
+    return await pybaseball_plotting_tools.create_teams_plot(data, x_axis, y_axis, title)
+
+
+# Combined tools that fetch data and create visualizations in one call
+@mcp_tool_wrapper
+async def create_pitcher_strike_zone(
+    player_id: int,
+    start_dt: str,
+    end_dt: str,
+    title: str = "",
+    colorby: str = "pitch_type",
+    annotation: str = "pitch_type",
+) -> Dict[str, Any]:
+    """
+    Fetch statcast data for a pitcher and create a strike zone plot showing pitch locations.
+
+    Args:
+        player_id: The pitcher's MLBAM ID (use get_playerid_lookup to find it)
+        start_dt: Start date in YYYY-MM-DD format
+        end_dt: End date in YYYY-MM-DD format
+        title: Optional title for the plot
+        colorby: Category to color pitches by: 'pitch_type', 'description', etc.
+        annotation: What to annotate on each pitch marker
+    """
+    data = await statcast_tools.get_statcast_pitcher_data(player_id, start_dt, end_dt)
+    return await pybaseball_plotting_tools.create_strike_zone_plot(
+        data, title, colorby, "", annotation
+    )
+
+
+@mcp_tool_wrapper
+async def create_batter_strike_zone(
+    player_id: int,
+    start_dt: str,
+    end_dt: str,
+    title: str = "",
+    colorby: str = "pitch_type",
+    annotation: str = "pitch_type",
+) -> Dict[str, Any]:
+    """
+    Fetch statcast data for a batter and create a strike zone plot showing pitches faced.
+
+    Args:
+        player_id: The batter's MLBAM ID (use get_playerid_lookup to find it)
+        start_dt: Start date in YYYY-MM-DD format
+        end_dt: End date in YYYY-MM-DD format
+        title: Optional title for the plot
+        colorby: Category to color pitches by: 'pitch_type', 'description', etc.
+        annotation: What to annotate on each pitch marker
+    """
+    data = await statcast_tools.get_statcast_batter_data(player_id, start_dt, end_dt)
+    return await pybaseball_plotting_tools.create_strike_zone_plot(
+        data, title, colorby, "", annotation
+    )
+
+
+@mcp_tool_wrapper
+async def create_batter_spraychart(
+    player_id: int,
+    start_dt: str,
+    end_dt: str,
+    team_stadium: str = "generic",
+    title: str = "",
+    colorby: str = "events",
+) -> Dict[str, Any]:
+    """
+    Fetch statcast data for a batter and create a spraychart showing hit locations.
+
+    Args:
+        player_id: The batter's MLBAM ID (use get_playerid_lookup to find it)
+        start_dt: Start date in YYYY-MM-DD format
+        end_dt: End date in YYYY-MM-DD format
+        team_stadium: Team abbreviation for stadium overlay (e.g. 'NYY', 'LAD', 'generic')
+        title: Optional title for the plot
+        colorby: Category to color hits by: 'events', 'player', etc.
+    """
+    data = await statcast_tools.get_statcast_batter_data(player_id, start_dt, end_dt)
+    return await pybaseball_plotting_tools.create_spraychart_plot(
+        data, team_stadium, title, colorby, "", 100, 500, 500
+    )
+
+
+@mcp_tool_wrapper
+async def create_batter_bb_profile(
+    player_id: int,
+    start_dt: str,
+    end_dt: str,
+    parameter: str = "launch_angle",
+) -> Dict[str, Any]:
+    """
+    Fetch statcast data for a batter and create a batted ball profile plot.
+
+    Args:
+        player_id: The batter's MLBAM ID (use get_playerid_lookup to find it)
+        start_dt: Start date in YYYY-MM-DD format
+        end_dt: End date in YYYY-MM-DD format
+        parameter: Parameter to plot: 'launch_angle', 'launch_speed', etc.
+    """
+    data = await statcast_tools.get_statcast_batter_data(player_id, start_dt, end_dt)
+    return await pybaseball_plotting_tools.create_bb_profile_plot(data, parameter)
+
+
+@mcp_tool_wrapper
+async def create_team_batting_comparison(
+    start_season: int,
+    x_axis: str,
+    y_axis: str,
+    end_season: Optional[int] = None,
+    title: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Fetch team batting stats and create a scatter plot comparing all MLB teams.
+
+    Args:
+        start_season: First season to include
+        x_axis: Batting stat for x-axis (e.g. 'HR', 'AVG', 'OBP', 'SLG', 'wOBA')
+        y_axis: Batting stat for y-axis (e.g. 'RBI', 'R', 'BB', 'K')
+        end_season: Last season to include (defaults to start_season)
+        title: Optional title for the plot
+    """
+    data = await pybaseball_supp_tools.get_team_batting(start_season, end_season, "all", 1)
+    return await pybaseball_plotting_tools.create_teams_plot(data, x_axis, y_axis, title)
+
+
+@mcp_tool_wrapper
+async def create_team_pitching_comparison(
+    start_season: int,
+    x_axis: str,
+    y_axis: str,
+    end_season: Optional[int] = None,
+    title: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Fetch team pitching stats and create a scatter plot comparing all MLB teams.
+
+    Args:
+        start_season: First season to include
+        x_axis: Pitching stat for x-axis (e.g. 'ERA', 'WHIP', 'K/9', 'BB/9')
+        y_axis: Pitching stat for y-axis (e.g. 'W', 'SV', 'IP', 'FIP')
+        end_season: Last season to include (defaults to start_season)
+        title: Optional title for the plot
+    """
+    data = await pybaseball_supp_tools.get_team_pitching(start_season, end_season, "all", 1)
     return await pybaseball_plotting_tools.create_teams_plot(data, x_axis, y_axis, title)
 
 
