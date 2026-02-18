@@ -225,8 +225,12 @@ async def get_meta(type_name: str, fields: Optional[str] = None) -> Dict[str, An
 
 
 @mcp_tool_wrapper
-async def get_available_endpoints() -> Dict[str, Any]:
-    """Get MLB StatsAPI endpoints directly"""
+async def get_available_endpoints(include_deprecated: bool = False) -> Dict[str, Any]:
+    """Get MLB StatsAPI endpoints directly.
+
+    Args:
+        include_deprecated: Whether to include deprecated endpoints (default: False)
+    """
     return await mlb_statsapi_tools.get_available_endpoints()
 
 
